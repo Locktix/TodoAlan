@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agenda Personnel & Professionnel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-left">
+      <h1>Mon Agenda</h1>
+      <p class="header-subtitle">Organisez votre journée en un clin d'œil</p>
+    </div>
+    <div class="header-right">
+      <div class="current-date" id="current-date"></div>
+      <label for="selected-date" class="date-label">Sélectionnez une date</label>
+      <div class="date-controls">
+        <button type="button" id="previous-day-button" class="date-nav-button">Jour avant</button>
+        <input type="date" id="selected-date">
+        <button type="button" id="next-day-button" class="date-nav-button">Jour après</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="app-nav">
+    <button class="nav-button active" data-section="agenda-section">Agenda / Tâches</button>
+    <button class="nav-button" data-section="notes-section">Notes</button>
+  </nav>
+
+  <main>
+    <section id="agenda-section" class="app-section active">
+      <header class="section-header">
+        <h2>To-do list du jour</h2>
+        <div class="task-actions">
+          <button id="clear-day-button" class="secondary">Vider la journée</button>
+          <button id="add-task-button" class="primary">Ajouter une tâche</button>
+        </div>
+      </header>
+
+      <ul id="task-list" class="task-list"></ul>
+
+      <template id="task-template">
+        <li class="task-item">
+          <label class="task-checkbox">
+            <input type="checkbox" class="task-complete">
+            <span class="checkmark"></span>
+          </label>
+          <div class="task-content">
+            <input type="text" class="task-text" placeholder="Nouvelle tâche">
+            <span class="task-updated"></span>
+          </div>
+          <button class="icon-button delete-task" aria-label="Supprimer la tâche">✕</button>
+        </li>
+      </template>
+    </section>
+
+    <section id="notes-section" class="app-section">
+      <header class="section-header">
+        <h2>Notes</h2>
+        <button id="add-note-button" class="primary">Nouvelle note</button>
+      </header>
+
+      <div id="notes-container" class="notes-container"></div>
+
+      <template id="note-template">
+        <article class="note-card">
+          <header class="note-header">
+            <input type="text" class="note-title" placeholder="Titre de la note">
+            <button class="icon-button delete-note" aria-label="Supprimer la note">✕</button>
+          </header>
+          <textarea class="note-body" placeholder="Votre contenu ici..."></textarea>
+          <footer class="note-footer">
+            <span class="note-updated"></span>
+          </footer>
+        </article>
+      </template>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Agenda personnel & professionnel — vos journées, organisées simplement.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
