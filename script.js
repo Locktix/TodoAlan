@@ -59,8 +59,41 @@ const timeFormatter = new Intl.DateTimeFormat("fr-FR", {
   minute: "2-digit",
 });
 
+// --- Vérification de la disponibilité de localStorage --- //
+function isStorageAvailable() {
+  try {
+    const test = "__storage_test__";
+    localStorage.setItem(test, test);
+    localStorage.removeItem(test);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // --- Initialisation de l'application --- //
 document.addEventListener("DOMContentLoaded", () => {
+  // Vérifier que localStorage fonctionne
+  if (!isStorageAvailable()) {
+    const warning = document.createElement("div");
+    warning.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #f59e0b;
+      color: white;
+      padding: 1rem 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 10000;
+      max-width: 300px;
+      font-size: 0.9rem;
+    `;
+    warning.textContent = "⚠️ Le stockage local n'est pas disponible. Vos données ne seront pas sauvegardées.";
+    document.body.appendChild(warning);
+    setTimeout(() => warning.remove(), 5000);
+  }
+  
   initTheme();
   initNavigation();
   initDateSelection();
@@ -174,6 +207,11 @@ function getNextDateValue(currentValue) {
 
 // --- Gestion du stockage local --- //
 function readStorage(key, fallback) {
+  if (!isStorageAvailable()) {
+    console.warn("localStorage n'est pas disponible. Les données ne seront pas sauvegardées.");
+    return fallback;
+  }
+  
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
@@ -185,10 +223,61 @@ function readStorage(key, fallback) {
 }
 
 function writeStorage(key, value) {
+  if (!isStorageAvailable()) {
+    console.warn("localStorage n'est pas disponible. Impossible de sauvegarder.");
+    return false;
+  }
+  
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch (error) {
     console.warn(`Impossible d'écrire ${key} dans localStorage`, error);
+    // Si le quota est dépassé, essayer de nettoyer un peu
+    if (error.name === "QuotaExceededError") {
+      console.warn("Quota localStorage dépassé. Nettoyage des anciennes données...");
+      try {
+        // Supprimer les données de plus de 30 jours
+        cleanupOldData();
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (e) {
+        console.error("Impossible de libérer de l'espace", e);
+      }
+    }
+    return false;
+  }
+}
+
+// Nettoyage des données anciennes (plus de 30 jours)
+function cleanupOldData() {
+  try {
+    const tasks = readStorage(STORAGE_KEYS.TASKS, {});
+    const notes = readStorage(STORAGE_KEYS.NOTES, {});
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    // Nettoyer les tâches anciennes
+    const cleanedTasks = {};
+    Object.keys(tasks).forEach((dateKey) => {
+      const taskDate = new Date(dateKey);
+      if (taskDate >= thirtyDaysAgo) {
+        cleanedTasks[dateKey] = tasks[dateKey];
+      }
+    });
+    writeStorage(STORAGE_KEYS.TASKS, cleanedTasks);
+    
+    // Nettoyer les notes anciennes
+    const cleanedNotes = {};
+    Object.keys(notes).forEach((dateKey) => {
+      const noteDate = new Date(dateKey);
+      if (noteDate >= thirtyDaysAgo) {
+        cleanedNotes[dateKey] = notes[dateKey];
+      }
+    });
+    writeStorage(STORAGE_KEYS.NOTES, cleanedNotes);
+  } catch (error) {
+    console.warn("Erreur lors du nettoyage", error);
   }
 }
 
