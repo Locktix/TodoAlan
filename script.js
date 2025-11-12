@@ -28,12 +28,23 @@ const clearDayButton = document.getElementById("clear-day-button");
 const notesContainer = document.getElementById("notes-container");
 const noteTemplate = document.getElementById("note-template");
 const addNoteButton = document.getElementById("add-note-button");
+const notesSearchInput = document.getElementById("notes-search");
+const themeToggle = document.getElementById("theme-toggle");
+const taskFilters = document.querySelectorAll(".filter-btn");
+const totalTasksSpan = document.getElementById("total-tasks");
+const completedTasksSpan = document.getElementById("completed-tasks");
+const progressPercentSpan = document.getElementById("progress-percent");
 
 // --- Constantes locales --- //
 const STORAGE_KEYS = {
   TASKS: "agenda.tasks",
   NOTES: "agenda.notes",
+  THEME: "agenda.theme",
 };
+
+// État de l'application
+let currentFilter = "all";
+let searchQuery = "";
 
 // Formatage internationalisé pour afficher les dates lisiblement.
 const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
@@ -50,11 +61,37 @@ const timeFormatter = new Intl.DateTimeFormat("fr-FR", {
 
 // --- Initialisation de l'application --- //
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
   initNavigation();
   initDateSelection();
   initTasks();
   initNotes();
+  initKeyboardShortcuts();
 });
+
+// --- Gestion du thème --- //
+function initTheme() {
+  const savedTheme = localStorage.getItem(STORAGE_KEYS.THEME) || "light";
+  document.documentElement.setAttribute("data-theme", savedTheme);
+  updateThemeIcon(savedTheme);
+
+  themeToggle?.addEventListener("click", () => {
+    const currentTheme = document.documentElement.getAttribute("data-theme");
+    const newTheme = currentTheme === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", newTheme);
+    localStorage.setItem(STORAGE_KEYS.THEME, newTheme);
+    updateThemeIcon(newTheme);
+  });
+}
+
+function updateThemeIcon(theme) {
+  if (themeToggle) {
+    const icon = themeToggle.querySelector(".theme-icon");
+    if (icon) {
+      icon.textContent = theme === "dark" ? "☀️" : "🌙";
+    }
+  }
+}
 
 // --- Initialisation de la navigation --- //
 function initNavigation() {
@@ -100,6 +137,7 @@ function applyDateChange(targetDate) {
   ensureCarryOver(normalizedDate);
   renderTaskList(normalizedDate);
   renderNotes(normalizedDate);
+  updateTaskStats(normalizedDate);
 }
 
 function updateCurrentDateLabel(dateValue) {
@@ -163,12 +201,26 @@ function initTasks() {
     tasks.push(task);
     saveTasksByDate(dateValue, tasks);
     renderTaskList(dateValue);
+    updateTaskStats(dateValue);
   });
 
   clearDayButton.addEventListener("click", () => {
-    const dateValue = selectedDateInput.value;
-    saveTasksByDate(dateValue, []);
-    renderTaskList(dateValue);
+    if (confirm("Êtes-vous sûr de vouloir supprimer toutes les tâches de cette journée ?")) {
+      const dateValue = selectedDateInput.value;
+      saveTasksByDate(dateValue, []);
+      renderTaskList(dateValue);
+      updateTaskStats(dateValue);
+    }
+  });
+
+  // Filtres de tâches
+  taskFilters.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentFilter = btn.dataset.filter;
+      taskFilters.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderTaskList(selectedDateInput.value);
+    });
   });
 }
 
@@ -192,6 +244,7 @@ function createTask(overrides = {}) {
     id: generateId(),
     text: "",
     completed: false,
+    priority: "normal",
     carriedFrom: null,
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -220,6 +273,7 @@ function ensureCarryOver(currentDateValue) {
       id: task.id,
       text: task.text,
       completed: false,
+      priority: task.priority || "normal",
       carriedFrom: yesterdayValue,
       updatedAt: new Date().toISOString(),
     })
@@ -229,7 +283,15 @@ function ensureCarryOver(currentDateValue) {
 }
 
 function renderTaskList(dateValue) {
-  const tasks = getTasksByDate(dateValue);
+  let tasks = getTasksByDate(dateValue);
+  
+  // Appliquer le filtre
+  if (currentFilter === "active") {
+    tasks = tasks.filter((t) => !t.completed);
+  } else if (currentFilter === "completed") {
+    tasks = tasks.filter((t) => t.completed);
+  }
+
   taskList.innerHTML = "";
 
   if (tasks.length === 0) {
@@ -239,21 +301,35 @@ function renderTaskList(dateValue) {
           <p class="task-text" style="opacity:0.7;">Aucune tâche pour cette journée. Ajoutez-en une pour commencer !</p>
         </div>
       </li>`;
+    updateTaskStats(dateValue);
     return;
   }
+
+  // Trier par priorité (haute > normale > basse) puis par date
+  tasks.sort((a, b) => {
+    const priorityOrder = { high: 3, normal: 2, low: 1 };
+    if (priorityOrder[a.priority || "normal"] !== priorityOrder[b.priority || "normal"]) {
+      return priorityOrder[b.priority || "normal"] - priorityOrder[a.priority || "normal"];
+    }
+    return new Date(a.updatedAt) - new Date(b.updatedAt);
+  });
 
   tasks.forEach((task) => {
     const taskElement = taskTemplate.content.firstElementChild.cloneNode(true);
     const checkbox = taskElement.querySelector(".task-complete");
     const textInput = taskElement.querySelector(".task-text");
+    const prioritySelect = taskElement.querySelector(".task-priority");
     const updatedSpan = taskElement.querySelector(".task-updated");
     const deleteButton = taskElement.querySelector(".delete-task");
 
     if (task.completed) {
       taskElement.classList.add("completed");
     }
+    
+    taskElement.setAttribute("data-priority", task.priority || "normal");
     textInput.value = task.text;
     checkbox.checked = task.completed;
+    prioritySelect.value = task.priority || "normal";
     updatedSpan.textContent = formatUpdatedAt(task.updatedAt);
 
     textInput.addEventListener("input", () => {
@@ -276,11 +352,19 @@ function renderTaskList(dateValue) {
       }
     });
 
+    prioritySelect.addEventListener("change", () => {
+      const updated = updateTask(dateValue, task.id, { priority: prioritySelect.value }, { rerender: false });
+      if (updated) {
+        taskElement.setAttribute("data-priority", updated.priority);
+      }
+    });
+
     checkbox.addEventListener("change", () => {
       const updated = updateTask(dateValue, task.id, { completed: checkbox.checked });
       if (updated?.completed) {
         cleanupCarriedTasks(dateValue, updated.id);
       }
+      updateTaskStats(dateValue);
     });
 
     deleteButton.addEventListener("click", () => {
@@ -289,6 +373,19 @@ function renderTaskList(dateValue) {
 
     taskList.appendChild(taskElement);
   });
+
+  updateTaskStats(dateValue);
+}
+
+function updateTaskStats(dateValue) {
+  const allTasks = getTasksByDate(dateValue);
+  const total = allTasks.length;
+  const completed = allTasks.filter((t) => t.completed).length;
+  const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  if (totalTasksSpan) totalTasksSpan.textContent = total;
+  if (completedTasksSpan) completedTasksSpan.textContent = completed;
+  if (progressPercentSpan) progressPercentSpan.textContent = `${progress}%`;
 }
 
 function updateTask(dateValue, taskId, updates, options = {}) {
@@ -310,6 +407,7 @@ function updateTask(dateValue, taskId, updates, options = {}) {
   saveTasksByDate(dateValue, updatedTasks);
   if (rerender) {
     renderTaskList(dateValue);
+    updateTaskStats(dateValue);
   }
   return updatedTask;
 }
@@ -344,6 +442,7 @@ function deleteTask(dateValue, taskId) {
   const updatedTasks = tasks.filter((task) => task.id !== taskId);
   saveTasksByDate(dateValue, updatedTasks);
   renderTaskList(dateValue);
+  updateTaskStats(dateValue);
 }
 
 function formatUpdatedAt(isoString) {
@@ -361,6 +460,12 @@ function initNotes() {
     notes.unshift(note); // Ajouter en tête pour un accès rapide.
     saveNotesByDate(dateValue, notes);
     renderNotes(dateValue);
+  });
+
+  // Recherche dans les notes
+  notesSearchInput?.addEventListener("input", (e) => {
+    searchQuery = e.target.value.toLowerCase().trim();
+    renderNotes(selectedDateInput.value);
   });
 }
 
@@ -398,11 +503,24 @@ function createNote(overrides = {}) {
 
 function renderNotes(dateValue) {
   const targetDate = dateValue || selectedDateInput.value;
-  const notes = getNotesByDate(targetDate);
+  let notes = getNotesByDate(targetDate);
+  
+  // Filtrer par recherche
+  if (searchQuery) {
+    notes = notes.filter((note) => {
+      const titleMatch = note.title?.toLowerCase().includes(searchQuery);
+      const bodyMatch = note.body?.toLowerCase().includes(searchQuery);
+      return titleMatch || bodyMatch;
+    });
+  }
+
   notesContainer.innerHTML = "";
 
   if (notes.length === 0) {
-    notesContainer.innerHTML = `<p style="opacity:0.7;">Aucune note pour le moment. Créez votre première note !</p>`;
+    const message = searchQuery 
+      ? `<p style="opacity:0.7;">Aucune note ne correspond à votre recherche.</p>`
+      : `<p style="opacity:0.7;">Aucune note pour le moment. Créez votre première note !</p>`;
+    notesContainer.innerHTML = message;
     return;
   }
 
@@ -486,5 +604,48 @@ function generateId() {
     return crypto.randomUUID();
   }
   return `id-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+// --- Raccourcis clavier --- //
+function initKeyboardShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    // Ignorer si on est dans un input/textarea
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+      // Permettre Ctrl/Cmd + N pour nouvelle tâche même dans un input
+      if ((e.ctrlKey || e.metaKey) && e.key === "n") {
+        e.preventDefault();
+        addTaskButton?.click();
+      }
+      return;
+    }
+
+    // N = Nouvelle tâche
+    if (e.key === "n" || e.key === "N") {
+      e.preventDefault();
+      addTaskButton?.click();
+    }
+
+    // Flèches gauche/droite = Navigation entre les jours
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      previousDayButton?.click();
+    }
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      nextDayButton?.click();
+    }
+
+    // 1, 2, 3 = Navigation entre sections
+    if (e.key === "1") {
+      e.preventDefault();
+      const agendaBtn = document.querySelector('[data-section="agenda-section"]');
+      agendaBtn?.click();
+    }
+    if (e.key === "2") {
+      e.preventDefault();
+      const notesBtn = document.querySelector('[data-section="notes-section"]');
+      notesBtn?.click();
+    }
+  });
 }
 
