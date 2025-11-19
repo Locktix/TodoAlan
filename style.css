@@ -588,6 +588,30 @@ main {
   font-size: 0.85rem;
 }
 
+.sync-controls {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: center;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.sync-button {
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  background: rgba(76, 110, 245, 0.1);
+  color: var(--primary);
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: background var(--transition), transform var(--transition);
+  border: 1px solid rgba(76, 110, 245, 0.2);
+}
+
+.sync-button:hover {
+  background: rgba(76, 110, 245, 0.2);
+  transform: translateY(-2px);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from {

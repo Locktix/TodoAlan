@@ -34,6 +34,9 @@ const taskFilters = document.querySelectorAll(".filter-btn");
 const totalTasksSpan = document.getElementById("total-tasks");
 const completedTasksSpan = document.getElementById("completed-tasks");
 const progressPercentSpan = document.getElementById("progress-percent");
+const exportDataButton = document.getElementById("export-data-button");
+const importDataButton = document.getElementById("import-data-button");
+const importFileInput = document.getElementById("import-file-input");
 
 // --- Constantes locales --- //
 const STORAGE_KEYS = {
@@ -100,6 +103,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initTasks();
   initNotes();
   initKeyboardShortcuts();
+  initSync();
 });
 
 // --- Gestion du thème --- //
@@ -694,6 +698,177 @@ function generateId() {
   }
   return `id-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
 }
+
+// --- Synchronisation et export/import --- //
+function initSync() {
+  // Export des données
+  exportDataButton?.addEventListener("click", () => {
+    const data = {
+      tasks: readStorage(STORAGE_KEYS.TASKS, {}),
+      notes: readStorage(STORAGE_KEYS.NOTES, {}),
+      theme: readStorage(STORAGE_KEYS.THEME, "light"),
+      exportDate: new Date().toISOString(),
+      version: "1.0"
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agenda-backup-${formatDateInputValue(new Date())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Afficher un message de confirmation
+    showNotification("✅ Données exportées avec succès !", "success");
+  });
+
+  // Import des données
+  importDataButton?.addEventListener("click", () => {
+    importFileInput?.click();
+  });
+
+  importFileInput?.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        
+        // Vérifier que c'est un fichier valide
+        if (!data.tasks || !data.notes) {
+          throw new Error("Format de fichier invalide");
+        }
+
+        // Demander confirmation
+        const confirmMessage = `Importer ces données ?\n\n` +
+          `- Tâches : ${Object.keys(data.tasks).length} journées\n` +
+          `- Notes : ${Object.keys(data.notes).length} journées\n\n` +
+          `⚠️ Cela remplacera vos données actuelles !`;
+        
+        if (confirm(confirmMessage)) {
+          // Fusionner avec les données existantes (ou remplacer)
+          const merge = confirm("Fusionner avec les données existantes ?\n\nOui = Fusionner\nNon = Remplacer tout");
+          
+          if (merge) {
+            // Fusionner les tâches
+            const existingTasks = readStorage(STORAGE_KEYS.TASKS, {});
+            const mergedTasks = { ...existingTasks };
+            Object.keys(data.tasks).forEach((date) => {
+              if (mergedTasks[date]) {
+                // Fusionner les tâches de cette date
+                const existing = mergedTasks[date];
+                const imported = data.tasks[date];
+                const existingIds = new Set(existing.map(t => t.id));
+                const newTasks = imported.filter(t => !existingIds.has(t.id));
+                mergedTasks[date] = [...existing, ...newTasks];
+              } else {
+                mergedTasks[date] = data.tasks[date];
+              }
+            });
+
+            // Fusionner les notes
+            const existingNotes = readStorage(STORAGE_KEYS.NOTES, {});
+            const mergedNotes = { ...existingNotes };
+            Object.keys(data.notes).forEach((date) => {
+              if (mergedNotes[date]) {
+                const existing = mergedNotes[date];
+                const imported = data.notes[date];
+                const existingIds = new Set(existing.map(n => n.id));
+                const newNotes = imported.filter(n => !existingIds.has(n.id));
+                mergedNotes[date] = [...existing, ...newNotes];
+              } else {
+                mergedNotes[date] = data.notes[date];
+              }
+            });
+
+            writeStorage(STORAGE_KEYS.TASKS, mergedTasks);
+            writeStorage(STORAGE_KEYS.NOTES, mergedNotes);
+          } else {
+            // Remplacer tout
+            writeStorage(STORAGE_KEYS.TASKS, data.tasks);
+            writeStorage(STORAGE_KEYS.NOTES, data.notes);
+          }
+
+          // Importer le thème si présent
+          if (data.theme) {
+            writeStorage(STORAGE_KEYS.THEME, data.theme);
+            document.documentElement.setAttribute("data-theme", data.theme);
+            updateThemeIcon(data.theme);
+          }
+
+          // Recharger l'affichage
+          const currentDate = selectedDateInput.value;
+          renderTaskList(currentDate);
+          renderNotes(currentDate);
+          updateTaskStats(currentDate);
+
+          showNotification("✅ Données importées avec succès !", "success");
+        }
+      } catch (error) {
+        console.error("Erreur lors de l'import", error);
+        showNotification("❌ Erreur : Fichier invalide ou corrompu", "error");
+      }
+    };
+
+    reader.readAsText(file);
+    e.target.value = ""; // Réinitialiser l'input
+  });
+}
+
+function showNotification(message, type = "info") {
+  const notification = document.createElement("div");
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: ${type === "success" ? "#2f9e44" : type === "error" ? "#d84b57" : "#4c6ef5"};
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 10000;
+    max-width: 300px;
+    font-size: 0.9rem;
+    animation: slideIn 0.3s ease;
+  `;
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  setTimeout(() => {
+    notification.style.animation = "slideOut 0.3s ease";
+    setTimeout(() => notification.remove(), 300);
+  }, 3000);
+}
+
+// Ajouter les animations CSS pour les notifications
+const style = document.createElement("style");
+style.textContent = `
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slideOut {
+    from {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    to {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+  }
+`;
+document.head.appendChild(style);
 
 // --- Raccourcis clavier --- //
 function initKeyboardShortcuts() {
